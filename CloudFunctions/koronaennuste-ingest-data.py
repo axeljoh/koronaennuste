@@ -1,14 +1,10 @@
 import base64
+import os
 
 import requests
 import datetime
 import json
-import ndjson
 import pandas as pd
-
-def convert_timestamp(record):
-    record['date'] = record['date'][:-5]
-    return record
 
 def daterange(start_date, end_date):
     for n in range(int ((end_date - start_date).days)):
@@ -20,7 +16,7 @@ def ingest_pubsub(event, context):
     from google.cloud import storage
 
     # get datetime
-    now = datetime.datetime.now() #+ datetime.timedelta(hours=6) # Just to make sure it goes to current day
+    now = datetime.datetime.now()
 
 
     # set storage client
@@ -41,11 +37,17 @@ def ingest_pubsub(event, context):
     if confirmed_archive_file.exists() == False and recovered_archive_file.exists() == False and deaths_archive_file.exists() == False and daily_statistics_archive_file.exists() == False:
         # copy file to google storage
         try:
-            r = requests.get('https://w3qa5ydb4l.execute-api.eu-west-1.amazonaws.com/prod/finnishCoronaData')
+            r = requests.get(os.environ['API_URL'])
             content = json.loads(r.content)
             confirmed = content['confirmed']
             recovered = content['recovered']
             deaths = content['deaths']
+            for record in confirmed:
+                record['healthCareDistrict'] = record['healthCareDistrict'] or 'Tuntematon'
+            for record in recovered:
+                record['healthCareDistrict'] = record['healthCareDistrict'] or 'Tuntematon'
+            for record in deaths:
+                record['healthCareDistrict'] = record['healthCareDistrict'] or 'Tuntematon'
             df_confirmed = pd.DataFrame(confirmed)
             df_recovered = pd.DataFrame(recovered)
             df_deaths = pd.DataFrame(deaths)
@@ -62,15 +64,14 @@ def ingest_pubsub(event, context):
             # The size of each step in days
             day_delta = datetime.timedelta(days=1)
             start_date = datetime.date(2020, 2, 26)
-            print(start_date)
             end_date = datetime.date.today()
-            print(end_date)
             daily_statistics = []
             for i in range((end_date - start_date).days):
                 date = str(start_date + i*day_delta)
                 new_cases = sum(record['date'] == date for record in confirmed)
                 new_recoveries = sum(record['date'] == date for record in recovered)
                 new_deaths = sum(record['date'] == date for record in deaths)
+                new_cases_last_week = new_cases + sum(record['new_cases'] for record in daily_statistics[-6:])
                 if i == 0:
                     total_cases = new_cases + 1
                     total_recoveries = new_recoveries + 1
@@ -82,6 +83,7 @@ def ingest_pubsub(event, context):
                 daily_statistics.append({
                     'date': date,
                     'new_cases': new_cases,
+                    'new_cases_last_week': new_cases_last_week,
                     'total_cases': total_cases,
                     'new_recoveries': new_recoveries,
                     'total_recoveries': total_recoveries,
@@ -90,7 +92,6 @@ def ingest_pubsub(event, context):
                     'active_cases': total_cases - total_recoveries - total_deaths})
             df_daily_statistics = pd.DataFrame(daily_statistics)
             csv_daily_statistics = df_daily_statistics.to_csv()
-            print(daily_statistics)
 
             ## Upload data
             confirmed_latest_file.upload_from_string(
@@ -122,6 +123,3 @@ def ingest_pubsub(event, context):
             raise
     else:
         print('archive_file already exists in google storage')
-
-if __name__ == "__main__":
-    ingest_pubsub(None, None)
