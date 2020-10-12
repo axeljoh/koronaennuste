@@ -64,7 +64,7 @@ def ingest_pubsub(event, context):
             # The size of each step in days
             day_delta = datetime.timedelta(days=1)
             start_date = datetime.date(2020, 2, 26)
-            end_date = datetime.date.today() - datetime.imedelta(days=3)
+            end_date = datetime.date.today() - datetime.timedelta(days=3)
             daily_statistics = []
             for i in range((end_date - start_date).days):
                 date = str(start_date + i*day_delta)
